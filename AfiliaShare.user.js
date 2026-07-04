@@ -1,76 +1,91 @@
 // ==UserScript==
-// @name         Freigeben Afilia Edit
-// @namespace
-// @version      0.0.1
-// @author
-// @include      *://leitstellenspiel.de/*
-// @include      *://www.leitstellenspiel.de/*
-// @run          document-start
+// @name         Freigeben Afilia Edit (DOM-safe)
+// @version      1.4
+// @match        *://leitstellenspiel.de/*
+// @match        *://www.leitstellenspiel.de/*
+// @run-at       document-end
 // ==/UserScript==
 
-$(document).ready(function() {
-  let AuthToken;
-  let TimeSpan = 100;
-  let minCredits;
-  function AlertMission(Index, Mission) {
+(function () {
+    'use strict';
 
-        $.get(`missions/${Mission}`, function(Response){
-
-            let start= Response.search("einsaetze"); //get beginning of link of Response string
-            let endchar=Response.indexOf('" class', start); // get end of link
-            let einsatzUrl=Response.slice(start,endchar); // slice link
-            $.get(einsatzUrl, function(Response){
-                let htmltext = Response;
-
-                let startpos = htmltext.search("Credits im Durchschnitt")+60; // get pos of beginning of Credits + 60 Chars
-                let endpos =htmltext.indexOf("</td>",startpos); // get next </TD> TAG AFTER CREDITS
-                let credits = parseInt(htmltext.slice(startpos,endpos)); // slice credits
-                console.log(credits);
-                if(credits >= minCredits)
-                {
-                    $.get(`missions/${Mission}`, function(Response) {
-                        AuthToken = $('meta[name="csrf-token"]', Response).attr('content');
-                    }).done(function(Response) {
-                        $.post(`missions/${Mission}/alarm`, {
-                            'utf8': '?',
-                            authenticity_token: AuthToken,
-                            next_mission: 0,
-                            alliance_mission_publish: 1,
-                            'vehicle_ids[]': []
-                        }).done(function() {
-                            console.log(`Done - ${Index}/${GetMissions().length}! + Credis: ${credits}`);
-                        });
-                    });
-                }
-            });
-        });
-  } // end function
-
-  function GetMissions() {
-    let Entities = [];
-
-    $("div#mission_list > div > div[id^='mission_panel_']:not('.panel-success')").each(function(i, Entity) {
-      Entities.push($(Entity).attr('id').replace('mission_panel_', ''));
-    });
-
-    return Entities;
-  } // end function
-
-    $("#search_input_field_missions").before(`
-        <a id="mission-share" data-toggle="modal" data-target="#mission-share" class="btn btn-info btn-xs">
-            <span class="glyphicon glyphicon-pencil"></span>Freigabe</a>
-    `);
-    $(document).on('click', 'a#mission-share', function() {
-    let userMinCredits = prompt("Bitte gebe die Creditszahl ein:", "Beispiel: 3000");
-    if (userMinCredits === null || userMinCredits === "") {
-        return;
+    function getMissions() {
+        return Array.from(
+            $('#mission_list div.panel-default:not(.panel-success,.mission_panel_green)').parent()
+        );
     }
-    minCredits = parseInt(userMinCredits);
 
-    console.log(`Missions found: ${GetMissions().length}`);
+    function shareMission(mission) {
+        const missionId = mission.id.replace('mission_', '');
 
-    $(GetMissions()).each(function(Index, Mission) {
-      setTimeout(AlertMission(Index, Mission), Index * TimeSpan);
-    });
-  });
-});
+        $.get(`/missions/${missionId}/alliance`)
+            .done(() => console.log(`Mission ${missionId} freigegeben.`))
+            .fail(() => console.warn(`Mission ${missionId} konnte nicht freigegeben werden.`));
+    }
+
+    function shareMissions(minCredits) {
+        const missions = getMissions();
+
+        missions.forEach((mission, index) => {
+            const sortable = JSON.parse($(mission).attr('data-sortable-by') || '{}');
+
+            if ((sortable.average_credits || 0) >= minCredits) {
+                setTimeout(() => shareMission(mission), index * 100);
+            }
+        });
+    }
+
+    function tryInjectButton() {
+
+        // wenn schon da → nichts tun
+        if ($('#mission-share').length) return true;
+
+        const $base = $('#chilloutArea');
+
+        if (!$base.length) return false; // noch nicht da
+
+        // Wrapper erzeugen, falls nötig
+        if (!$('#afilia-btn-wrapper').length) {
+            $base.wrap(
+                '<span id="afilia-btn-wrapper" style="display:inline-flex; gap:5px; align-items:center;"></span>'
+            );
+        }
+
+        $('#afilia-btn-wrapper').append(`
+            <a href="#"
+               id="mission-share"
+               class="btn btn-warning btn-xs">
+               Freigeben
+            </a>
+        `);
+
+        $('#mission-share').on('click', function (e) {
+            e.preventDefault();
+
+            const input = prompt('Bitte Mindestcredits eingeben:', '3000');
+            if (!input) return;
+
+            const minCredits = parseInt(input, 10);
+            if (isNaN(minCredits)) {
+                alert('Ungültige Zahl!');
+                return;
+            }
+
+            shareMissions(minCredits);
+        });
+
+        return true;
+    }
+
+    // 🔥 robustes Polling statt nur MutationObserver
+    const interval = setInterval(() => {
+        if (tryInjectButton()) {
+            clearInterval(interval);
+        }
+    }, 300);
+
+    // zusätzlicher Safety-Net Observer
+    const observer = new MutationObserver(() => tryInjectButton());
+    observer.observe(document.body, { childList: true, subtree: true });
+
+})();
