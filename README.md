@@ -1,2 +1,2 @@
 # AfiliaShare
-[Install Script here]
+[Install Script here](afiliafrostfang.github.io/AfiliaShare/AfiliaShare.user.js)
