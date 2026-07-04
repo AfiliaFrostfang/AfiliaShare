@@ -1,2 +1,2 @@
 # AfiliaShare
-[Install Script here]()
+[Install Script here]
